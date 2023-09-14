@@ -47,11 +47,13 @@ abstract class CloudFlareAPI {
   const REQUEST_ALL_PAGES = -1;
   const API_ENDPOINT_BASE = 'https://api.cloudflare.com/client/v4/';
 
-  // The length of the Api key.
+  // The length of the Global Api key.
   // The Api will throw a non-descriptive http code: 400 exception if the key
   // length is greater than 37. If the key is invalid but the expected length
   // the Api will return a more informative http code of 403.
-  const API_KEY_LENGTH = 37;
+  const GLOBAL_API_KEY_LENGTH = 37;
+  // The length of an Api token.
+  const API_TOKEN_LENGTH = 40;
 
   // The CloudFlare API sets a maximum of 1,200 requests in a 5-minute period.
   const API_RATE_LIMIT = 1200;
@@ -63,10 +65,10 @@ abstract class CloudFlareAPI {
   const MAX_TAG_PURGES_PER_REQUEST = 30;
 
   // Time in seconds.
-  const HTTP_CONNECTION_TIMEOUT = 1.5;
+  const HTTP_CONNECTION_TIMEOUT = 15;
 
   // Time in seconds.
-  const HTTP_TIMEOUT = 3;
+  const HTTP_TIMEOUT = 30;
 
   // MAX Number of results returned by the API in one request.
   const MAX_ITEMS_PER_PAGE = 50;
@@ -93,10 +95,15 @@ abstract class CloudFlareAPI {
     $this->apikey = $apikey;
     $this->email = $email;
     $headers = [
-      'X-Auth-Key' => $apikey,
-      'X-Auth-Email' => $email,
       'Content-Type' => 'application/json',
     ];
+    if (strlen($apikey) === self::API_TOKEN_LENGTH) {
+      $headers['Authorization'] = 'Bearer ' . $apikey;
+    }
+    else {
+      $headers['X-Auth-Key'] = $apikey;
+      $headers['X-Auth-Email'] = $email;
+    }
 
     $client_params = [
       'base_uri' => self::API_ENDPOINT_BASE,
@@ -141,20 +148,21 @@ abstract class CloudFlareAPI {
     }
     // This check seems superfluous.  However, the Api only returns a http 400
     // code. This proactive check gives us more information.
-    $is_api_key_valid = strlen($this->apikey) == CloudFlareAPI::API_KEY_LENGTH;
-    $is_api_key_alpha_numeric = ctype_alnum($this->apikey);
-    $is_api_key_lower_case = !(preg_match('/[A-Z]/', $this->apikey));
+    $api_key_length = strlen($this->apikey);
+    $is_valid_length = $api_key_length == self::API_TOKEN_LENGTH || $api_key_length == self::GLOBAL_API_KEY_LENGTH;
+    $is_valid_token_chars = !preg_match('/[^A-Za-z0-9_-]/', $this->apikey);
+    $is_valid_key_chars = !preg_match('/[^a-z0-9]/', $this->apikey);
 
-    if (!$is_api_key_valid) {
-      throw new CloudFlareInvalidCredentialException("Invalid Api Key: Key should be 37 chars long.", 403);
+    if (!$is_valid_length) {
+      throw new CloudFlareInvalidCredentialException("Invalid Api Key: Should be 37 character global key, or 40 character token.", 403);
     }
 
-    if (!$is_api_key_alpha_numeric) {
-      throw new CloudFlareInvalidCredentialException('Invalid Api Key: Key can only contain alphanumeric characters.', 403);
+    if ($api_key_length == self::API_TOKEN_LENGTH && !$is_valid_token_chars) {
+      throw new CloudFlareInvalidCredentialException('Invalid Api Key: 40-character token can only contain alphanumeric characters, hyphens, and underscores.', 403);
     }
 
-    if (!$is_api_key_lower_case) {
-      throw new CloudFlareInvalidCredentialException('Invalid Api Key: Key can only contain lowercase or numerical characters.', 403);
+    if ($api_key_length == self::GLOBAL_API_KEY_LENGTH && !$is_valid_key_chars) {
+      throw new CloudFlareInvalidCredentialException('Invalid Api Key: 37-character global key can only contain lowercase and numeric characters.', 403);
     }
 
     try {
